@@ -1,22 +1,29 @@
 import os
 import random
+from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+
 players = {}
+app = Flask(__name__)
+application = None
+
 
 def get_player(user_id):
     if user_id not in players:
         players[user_id] = {"points": 100}
     return players[user_id]
 
+
 def menu():
-    keyboard = [
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton("🎮 بازی", callback_data="play")],
         [InlineKeyboardButton("💰 موجودی", callback_data="balance")]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+    ])
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     player = get_player(update.effective_user.id)
@@ -27,6 +34,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"امتیاز شما: {player['points']}",
         reply_markup=menu()
     )
+
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -39,9 +47,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💰 موجودی شما:\n\nامتیاز: {player['points']}",
             reply_markup=menu()
         )
-        return
 
-    if query.data == "play":
+    elif query.data == "play":
         multiplier = round(random.uniform(1.00, 10.00), 2)
 
         if multiplier >= 2.00:
@@ -58,17 +65,41 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=menu()
         )
 
+
+@app.route("/", methods=["GET"])
+def home():
+    return "Telegram Lucky Bot is running!"
+
+
+@app.route("/webhook", methods=["POST"])
+async def webhook():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    await application.process_update(update)
+    return "OK"
+
+
+async def setup():
+    await application.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+
+
 def main():
+    global application
+
     if not TOKEN:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN تنظیم نشده است.")
+        raise RuntimeError("TELEGRAM_BOT_TOKEN تنظیم نشده است")
 
-    app = Application.builder().token(TOKEN).build()
+    if not WEBHOOK_URL:
+        raise RuntimeError("WEBHOOK_URL تنظیم نشده است")
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
+    application = Application.builder().token(TOKEN).build()
 
-    print("Bot is running...")
-    app.run_polling()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(button_handler))
+
+    import asyncio
+    asyncio.run(application.initialize())
+    asyncio.run(setup())
+
 
 if __name__ == "__main__":
     main()
